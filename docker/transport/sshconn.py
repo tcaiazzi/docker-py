@@ -36,9 +36,9 @@ class SSHConnection(httplib.HTTPConnection, object):
 class SSHConnectionPool(urllib3.connectionpool.HTTPConnectionPool):
     scheme = 'ssh'
 
-    def __init__(self, ssh_client, timeout=60, maxsize=10):
+    def __init__(self, ssh_client, timeout=60, max_pool_size=10):
         super(SSHConnectionPool, self).__init__(
-            'localhost', timeout=timeout, maxsize=maxsize
+            'localhost', timeout=timeout, maxsize=max_pool_size
         )
         self.ssh_transport = ssh_client.get_transport()
         self.timeout = timeout
@@ -72,11 +72,15 @@ class SSHConnectionPool(urllib3.connectionpool.HTTPConnectionPool):
 class SSHHTTPAdapter(BaseHTTPAdapter):
 
     __attrs__ = requests.adapters.HTTPAdapter.__attrs__ + [
-        'pools', 'timeout', 'ssh_client',
+
+        'pools', 'timeout', 'ssh_client', 'ssh_params', 'max_pool_size'
     ]
 
     def __init__(self, base_url, timeout=60,
-                 pool_connections=constants.DEFAULT_NUM_POOLS):
+                 pool_connections=constants.DEFAULT_NUM_POOLS,
+                 max_pool_size=10):
+        logging.getLogger("paramiko").setLevel(logging.WARNING)
+
         self.ssh_client = paramiko.SSHClient()
         self.ssh_client.load_system_host_keys()
 
@@ -86,6 +90,7 @@ class SSHHTTPAdapter(BaseHTTPAdapter):
         self.pools = RecentlyUsedContainer(
             pool_connections, dispose_func=lambda p: p.close()
         )
+        self.max_pool_size = max_pool_size
         super(SSHHTTPAdapter, self).__init__()
 
     def _connect(self):
@@ -105,7 +110,8 @@ class SSHHTTPAdapter(BaseHTTPAdapter):
                 self._connect()
 
             pool = SSHConnectionPool(
-                self.ssh_client, self.timeout
+                self.ssh_client, self.timeout,
+                max_pool_size=self.max_pool_size
             )
             self.pools[url] = pool
 
